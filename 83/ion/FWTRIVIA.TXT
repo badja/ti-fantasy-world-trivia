@@ -1,0 +1,115 @@
+FANTASY WORLD TRIVIA v1.01                                      13 August 2000
+==========================
+for Ion on the TI-83/TI-83+
+
+by Badja
+http://badja.calc.org
+badja@calc.org
+
+
+How to Run
+==========
+Fantasy World Trivia requires version 1.6 of Ion to run. There is one program
+file and four question files (volumes #1, #2, #3 and #4). Each question file
+contains 384 questions.
+
+TI-83 Users
+-----------
+Make sure Ion is installed on your calculator. Send FWTRIVIA.83P to your
+calculator. Only one question file can fit on a TI-83, so send one of these:
+  FWTQVOL1.83P
+  FWTQVOL2.83P
+  FWTQVOL3.83P
+  FWTQVOL4.83P
+
+TI-83+ Users
+------------
+Make sure Ion v1.6 is installed on your calculator. You may need to reset your
+RAM to upgrade properly to v1.6 from an earlier version. Send FWTRIVIA.8XP to
+either RAM or Flash ROM. Send to *Flash ROM* any or all of the question files:
+  FWTQVOL1.8XP
+  FWTQVOL2.8XP
+  FWTQVOL3.8XP
+  FWTQVOL4.8XP
+You must have about 16KB of RAM free to run the game.
+
+
+About
+=====
+Fantasy World Trivia is a quiz game for 1 to 9 players. There are more than
+1500 multiple-choice questions and two different modes of play. The questions
+are in six categories: Art & Literature, TV & Films, Geography, Music,
+Science and Sport.
+
+The questions were written in 1993, so you should answer them with this in
+mind. However, this only affects a few questions.
+
+
+How to Play
+===========
+At the title screen, select a play mode (Cash Run or Pyramid) and press 2ND.
+Once you are in the game, press one of the four arrow keys to answer a
+question. The two play modes are simple to play: just follow the prompts
+regarding whose turn is next. Note that if a player's turn is skipped, it
+means that he has been eliminated and will not be given another turn in that
+game. Both play modes are fair for each player, in that neither being the
+first player or the last player hold any advantage. The following gives a
+complete description of the two play modes.
+
+Cash Run
+--------
+Five dollars are awarded for each correctly answered question. In a multi-
+player game, the player with the most cash at the end wins. In the case of a
+tie, further rounds are played among the tied players until the tie is broken.
+
+Pyramid
+-------
+Each player starts at the base of their pyramid, which is shown on-screen.
+They must answer questions until they give a correct answer, whereby they will
+move to the next level of the pyramid and play will be passed to the next
+player. At the base of the pyramid, players have 5 chances in which to answer
+correctly; at the top, they have only one chance.
+
+In a single-player game, the aim is to reach the top of the pyramid and answer
+that question correctly.
+
+In a multi-player game, players are eliminated at the end of each round based
+on whether or not they gave a correct answer in that round. If no player gave
+a correct answer, the round is replayed. Otherwise, all players who didn't
+answer correctly are eliminated, and the others continue playing on the next
+level of the pyramid (if they're not already at the top). The winner is the
+last player remaining.
+
+
+Summary of Keys
+===============
+
+At menus:
+------------------------------------------
+Arrow keys  Change selection
+2nd         Accept current value
+CLEAR       End game
+
+In game:
+------------------------------------------
+Arrow keys  Answer question
+
+
+Credits
+=======
+Questions from the 1993 PC game "Arcade Trivia Quiz" by Zeppelin Games Limited
+Original Huffman decompression routine by Jimmy Mårdell <yarin@acc.umu.se>
+RLE decompression routine by David Phillips <electrum@tfs.net>
+Thanks to Chris Coleman <abcdefg200@hotmail.com> for testing the 83+ version
+
+
+Version History
+===============
+New in version 1.01
+- No longer uses saferam3 (textshadow), so MirageOS users won't have their
+  TI-OS's screen messed up when they exit
+- Includes source code for Huffman and RLE decompression routines
+
+
+
+Send any comments, ideas, or other feedback to badja@calc.org

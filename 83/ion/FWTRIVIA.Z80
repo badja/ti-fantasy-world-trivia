@@ -1,0 +1,1385 @@
+;************************************************************
+;
+; Fantasy World Trivia v1.01
+; ==========================
+; for Ion on the TI-83/TI-83+
+;
+; by Badja
+; 13 August 2000
+;
+; http://badja.calc.org
+; badja@calc.org
+;
+; You may modify this source code for personal use only.
+; You may NOT distribute the modified source or program file.
+;
+; Questions from the 1993 PC game "Arcade Trivia Quiz"
+; by Zeppelin Games Limited
+;
+;************************************************************
+
+
+.NOLIST
+#include "ion.inc"
+.LIST
+
+#define	VARS		saferam1
+
+;******** VARS offsets ********
+#define	VOLUME	0			; byte	are any volumes present?/selected volume #
+#define	VOLUME1	VOLUME+1		; byte	is volume 1 present?
+#define	VOLUME2	VOLUME1+1		; byte	is volume 2 present?
+#define	VOLUME3	VOLUME2+1		; byte	is volume 3 present?
+#define	VOLUME4	VOLUME3+1		; byte	is volume 4 present?
+#define	VOL_ADDR	VOLUME4+1		; word	address of selected volume data
+#define	TEMP		VOL_ADDR+2		; 12 bytes	temporary storage area
+#define	ANSWER	TEMP+12		; byte	correct answer
+#define	PLAYERS	ANSWER+1		; byte	number of players
+#define	ROUNDS	PLAYERS+1		; byte	number of rounds
+#define	PLAYER	ROUNDS+1		; byte	current player
+#define	GAME_TYPE	PLAYER+1		; byte	current game type
+#define	ROUND		GAME_TYPE+1		; byte	current round/pyramid level
+#define	PLAYER_DATA	ROUND+1		; 9 bytes	players' cash/# questions wrong on current level
+#define	QUESTIONS	PLAYER_DATA+9	; 125 bytes	place to extract questions
+#define	HUFF_TREE	QUESTIONS+128	;		place to construct huffman tree
+
+
+;******** Program ********
+
+#ifdef TI83P
+_sfont_len	.equ	4786h
+
+	.org	progstart-2
+	.db	$BB,$6D
+#else
+_sfont_len	.equ	4A6Ch
+
+	.org	progstart
+#endif
+	ret
+	jr	nc,start
+title:
+	.db	"Fantasy World Trivia",0
+
+start:
+
+#ifdef TI83P
+
+	ld	hl,VARS+VOLUME	; set VOLUME and VOLUMEn vars to 0
+	ld	de,VARS+VOLUME+1
+	xor	a
+	ld	(hl),a
+	ld	bc,4
+	ldir
+
+	ld	hl,(vat)		; look for FWTQVOLn
+findVols:
+	ld	bc,-5
+	add	hl,bc
+	ld	a,(hl)
+	dec	hl
+	push	hl
+	or	a
+	jr	z,noMatch		; don't look in RAM
+	dec	hl
+	ld	de,volName
+	ld	b,7
+checkMatch:
+	ld	a,(de)
+	cp	(hl)
+	inc	de
+	dec	hl
+	jr	nz,noMatch
+	djnz	checkMatch
+	ld	a,(hl)		; volume found
+	sub	'1'
+	ld	b,0
+	ld	c,a
+	ld	hl,VARS+VOLUME1
+	add	hl,bc
+	ld	a,1
+	ld	(hl),a		; mark volume as present
+	ld	(VARS+VOLUME),a	; volume found
+noMatch:
+	pop	hl
+	ld	b,(hl)
+	dec	hl
+skipName:
+	dec	hl
+	djnz	skipName
+	ld	de,(ptemp)		; are we at end of VAT?
+	bcall(_cphlde)
+	jr	nz,findVols
+
+	ld	a,(VARS+VOLUME)	; were any found?
+	or	a
+	jr	nz,volumesExist
+	ld	hl,$1c05		; none found
+	ld	(pencol),hl
+	ld	hl,txtNoVols
+	bcall(_vputs)
+	bcall(_getkey)
+	ret
+volumesExist:
+	call	pickRandomVolume	; check to see if a volume fits in RAM
+	jr	z,volFound
+	ld	hl,$1c09		; out of memory (couldn't copy from Flash to RAM)
+	ld	(pencol),hl
+	ld	hl,txtOutOfMem
+	bcall(_vputs)
+	bcall(_getkey)
+	ret
+volFound:
+
+#else
+
+	ld	hl,(vat)			; find file beginning with FWT
+	ld	ix,detectString
+	call	ionDetect
+	jr	z,volFound
+	ld	hl,$1c07			; none found
+	ld	(pencol),hl
+	ld	hl,txtNoVols
+	bcall(_vputs)
+	bcall(_getkey)
+	ret
+volFound:
+	ld	a,(hl)			; next char is volume #
+	inc	hl
+	sub	'1'
+	ld	(VARS+VOLUME),a		; record chosen volume
+	ld	(VARS+VOL_ADDR),hl	; record address of volume data
+
+#endif
+
+	set	textwrite,(iy+sgrflags)
+	xor	a				; initialise variables
+	ld	(VARS+GAME_TYPE),a
+	ld	a,1
+	ld	(VARS+PLAYERS),a
+	ld	a,15
+	ld	(VARS+ROUNDS),a
+mainMenu:
+	xor	a
+	ld	(VARS+PLAYER),a
+	ld	(VARS+ROUND),a
+
+	bcall(_cleargbuf)
+	ld	hl,$000f
+	ld	(pencol),hl
+	ld	hl,title
+	bcall(_vputs)
+	ld	hl,plotsscreen+(12*7)
+	ld	de,plotsscreen+(12*7)+1
+	ld	(hl),%11111111
+	ld	bc,11
+	ldir
+
+	ld	hl,$0c0b		; display URL
+	ld	(pencol),hl
+	ld	hl,txtURL
+	bcall(_vputs)
+
+	ld	hl,$1b1e		; display Play Mode
+	ld	(pencol),hl
+	ld	hl,txtPlayMode
+	bcall(_vputs)
+
+	ld	hl,$3a00		; display which volumes are present
+	ld	(pencol),hl
+	ld	hl,txtVolsPresent
+	bcall(_vputs)
+
+#ifdef TI83P
+	ld	de,VARS+VOLUME1	; display list of volume #'s
+	ld	b,'1'
+nextVolume:
+	ld	a,(de)
+	or	a
+	jr	z,volNotPresent
+	ld	hl,txtHash
+	bcall(_vputs)
+	ld	a,b
+	push	de
+	bcall(_vputmap)
+	pop	de
+volNotPresent:
+	inc	de
+	inc	b
+	ld	a,b
+	cp	'5'
+	jr	nz,nextVolume
+#else
+	ld	hl,txtHash		; display single volume #
+	bcall(_vputs)
+	ld	a,(VARS+VOLUME)
+	add	a,'1'
+	bcall(_vputmap)
+#endif
+
+	ld	a,(VARS+GAME_TYPE)
+	ld	b,a
+menu:
+	ld	a,b
+	cp	0
+	call	z,inverseText
+	ld	hl,$2422		; display Cash Run
+	ld	(pencol),hl
+	ld	hl,txtCashRun
+	bcall(_vputs)
+	res	textinverse,(iy+textflags)
+
+	cp	1
+	call	z,inverseText
+	ld	hl,$2b22		; display Pyramid
+	ld	(pencol),hl
+	ld	hl,txtPyramid
+	bcall(_vputs)
+	res	textinverse,(iy+textflags)
+
+	push	bc
+	bcall(_copygbuf)
+	call	delay
+	pop	bc
+menuLoop:
+	call	resetKeyport
+	ld	a,$fe
+	out	(1),a
+	in	a,(1)
+	cp	254			; down
+	jr	z,down
+	cp	247			; up
+	jr	z,up
+	call	resetKeyport
+	ld	a,$bf
+	out	(1),a
+	in	a,(1)
+	cp	223			; 2nd
+	jr	z,startGame
+	call	resetKeyport
+	ld	a,$fd
+	out	(1),a
+	in	a,(1)
+	cp	191			; CLEAR
+	jr	z,quitGame
+	jr	menuLoop
+down:
+	ld	b,1
+	jr	menu
+up:
+	ld	b,0
+	jr	menu
+quitGame:
+	res	textwrite,(iy+sgrflags)
+	ret
+
+startGame:
+	ld	a,b				; store game type
+	ld	(VARS+GAME_TYPE),a
+	ld	hl,VARS+PLAYER_DATA	; clear player data
+	ld	de,VARS+PLAYER_DATA+1
+	ld	(hl),0
+	ld	bc,8
+	ldir
+	or	a
+	jp	nz,pyramid
+
+
+cashRun:
+	call	getNumPlayers
+	call	getNumRounds
+	call	initGame
+	call	waitFor2nd
+cashRunLoop:
+	call	initScreen
+	ld	hl,$1452			; display round #
+	ld	(pencol),hl
+	ld	hl,txtRound
+	bcall(_vputs)
+	ld	hl,$1a56
+	ld	(pencol),hl
+	ld	a,(VARS+ROUND)
+	inc	a
+	call	dispNumber
+	call	dispCash
+	call	askQuestion
+	jr	nz,cashRunIncorrect	; jump if incorrect
+	call	getPlayer			; add cash
+	ld	hl,VARS+PLAYER_DATA
+	add	hl,bc
+	ld	a,(hl)
+	add	a,5				; 5 dollar award
+	ld	(hl),a
+	call	dispCashNow			; and display it on screen
+cashRunIncorrect:
+	call	nextPlayer
+	jr	nz,cashRunAskAgain	; jump if not end of round
+	ld	a,(VARS+ROUNDS)
+	ld	b,a
+	ld	a,(VARS+ROUND)
+	inc	a
+	cp	b
+	jr	z,cashRunFinished		; jump if game is over
+	ld	(VARS+ROUND),a
+	jr	cashRunStartAskAgain
+cashRunAskAgain:
+	call	dispNextPlayer
+	bcall(_copygbuf)
+	call	waitFor2nd
+	jr	cashRunLoop
+cashRunFinished:				; end of rounds
+	ld	hl,VARS+PLAYER_DATA
+	ld	a,(VARS+PLAYERS)
+	dec	a				; if number of players is not 1
+	jr	nz,cashRunMulti
+	ld	hl,$0903
+	ld	(pencol),hl
+	ld	hl,txtEndCashRun
+	bcall(_vputs)
+	call	press2nd
+	jp	endOfGame
+cashRunMulti:
+	ld	bc,0		; C = maximum cash so far
+	ld	d,b		; D = last player with maximum
+	ld	e,b		; E = number of players with maximum
+findMax:
+	ld	a,(hl)
+	cp	251
+	jr	nc,notMax
+	cp	c
+	jr	c,notMax
+	jr	z,equal
+	ld	c,a
+	ld	d,b
+	ld	e,1
+	jr	notMax
+equal:
+	ld	d,b
+	inc	e
+notMax:
+	inc	hl
+	inc	b
+	push	bc
+	ld	a,(VARS+PLAYERS)
+	ld	c,a
+	ld	a,b
+	cp	c
+	pop	bc
+	jr	nz,findMax
+	ld	a,e
+	dec	a			; if number of players with max is 1
+	jp	z,win
+
+	ld	d,c
+	ld	a,d			; prevent cash from exceeding 250
+	cp	250
+	jr	nz,notAtCashLimit
+	ld	d,245
+notAtCashLimit:
+	ld	hl,VARS+PLAYER_DATA
+	ld	a,(VARS+PLAYERS)
+	ld	b,a
+cashRunContinue:			; eliminate players without maximum
+	ld	a,(hl)
+	ld	(hl),d
+	cp	c
+	jr	z,cashRunNoElimination
+	ld	(hl),-1
+cashRunNoElimination:
+	inc	hl
+	djnz	cashRunContinue
+cashRunStartAskAgain:
+	ld	a,-1
+	ld	(VARS+PLAYER),a
+	call	nextPlayer
+	jr	cashRunAskAgain
+
+
+pyramid:
+	call	getNumPlayers
+	call	initGame
+	call	waitFor2nd
+pyramidAsk:
+	call	initScreen
+	call	getPlayer
+	ld	hl,VARS+PLAYER_DATA	; display the pyramid...
+	add	hl,bc
+	ld	d,(hl)			; D = amount wrong on current level
+	ld	c,0
+nextRow:
+	ld	a,(VARS+ROUND)
+	ld	b,a
+	ld	a,4
+	sub	b
+	ld	b,c
+	inc	b
+	cp	c
+	jr	nz,notLastRow
+	ld	a,c
+	inc	a
+	sub	d
+	ld	b,a
+	ld	d,-1
+notLastRow:
+	ld	a,22
+	add	a,c
+	add	a,c
+	ld	e,a
+	ld	a,87
+	sub	c
+drawRow:
+	push	af
+	push	bc
+	push	de
+	call	drawPixel
+	pop	de
+	pop	bc
+	pop	af
+	add	a,2
+	djnz	drawRow
+	inc	c
+	ld	a,d
+	cp	-1
+	jr	nz,nextRow
+
+	call	askQuestion
+	jr	z,pyramidCorrect
+	ld	hl,VARS+PLAYER_DATA	; answered incorrectly,
+	call	getPlayer			; check if have more chances
+	add	hl,bc
+	ld	a,(VARS+ROUND)
+	ld	b,a
+	ld	a,5
+	sub	b
+	inc	(hl)
+	cp	(hl)
+	jr	z,pyramidPlayerOut	; if not, player is potentially out
+	ld	hl,$090c			; otherwise, try again
+	ld	(pencol),hl
+	ld	hl,txtTryAgain
+	bcall(_vputs)
+	call	press2nd
+	jr	pyramidAskAgain
+pyramidPlayerOut:
+	ld	(hl),-1			; give 'out' player the data -1
+pyramidCorrect:
+	call	nextPlayer
+	jr	z,pyramidEndOfRound
+	jr	pyramidNextAskAgain
+pyramidEndOfRound:
+	ld	a,(VARS+PLAYERS)
+	dec	a				; if number of players is not 1
+	jr	nz,pyramidMulti
+	ld	a,(VARS+PLAYER_DATA)
+	cp	-1
+	jr	nz,pyramidSoloContinue
+	ld	hl,$090e
+	ld	(pencol),hl
+	ld	hl,txtLose
+	bcall(_vputs)
+	call	press2nd
+	jp	endOfGame
+pyramidSoloContinue:
+	xor	a
+	ld	(VARS+PLAYER_DATA),a
+	ld	a,(VARS+ROUND)
+	cp	4
+	jr	z,win
+	jr	pyramidNextLevel
+pyramidMulti:
+	ld	bc,0
+	ld	d,b
+	ld	hl,VARS+PLAYER_DATA
+countNext:					; count number of players still 'in'
+	ld	a,(hl)
+	cp	251
+	jr	nc,notIn
+	inc	c
+	ld	d,b
+notIn:
+	inc	hl
+	inc	b
+	ld	a,(VARS+PLAYERS)
+	cp	b
+	jr	nz,countNext
+						; C = number of players in, D = last player in
+	ld	a,c
+	cp	1				; if only 1, win
+	jr	z,win
+	or	a
+	jr	z,repeatLevel		; if none, all -1 players are reborn
+
+	ld	hl,VARS+PLAYER_DATA	; otherwise, eliminate -1 players (make them -2)
+	ld	a,(VARS+PLAYERS)		; and make the others 0 (no questions wrong)...
+	ld	b,a
+pyramidContinue:
+	ld	a,(hl)
+	cp	251
+	jr	c,pyramidNoElimination
+	ld	(hl),-2
+	jr	pyramidDoneElimination
+pyramidNoElimination:
+	ld	(hl),0
+pyramidDoneElimination:
+	inc	hl
+	djnz	pyramidContinue
+	ld	a,(VARS+ROUND)		; go to next level, if not already at top
+	cp	4
+	jr	z,atTop
+pyramidNextLevel:
+	inc	a
+	ld	(VARS+ROUND),a
+atTop:
+pyramidStartAskAgain:
+	ld	a,-1				; go to first remaining player
+	ld	(VARS+PLAYER),a
+	call	nextPlayer
+pyramidNextAskAgain:
+	call	dispNextPlayer
+pyramidAskAgain:
+	bcall(_copygbuf)
+	call	waitFor2nd
+	jp	pyramidAsk
+
+repeatLevel:
+	ld	hl,VARS+PLAYER_DATA
+	ld	a,(VARS+PLAYERS)
+	ld	b,a
+repeatNext:					; give all -1 players another chance
+	ld	a,(hl)
+	cp	-1
+	jr	nz,notOut
+	ld	(hl),0
+notOut:
+	inc	hl
+	djnz	repeatNext
+	jr	pyramidStartAskAgain
+
+win:
+	ld	a,d
+	ld	hl,$0905			; display player wins message
+	ld	(pencol),hl
+	ld	hl,txtPlayer
+	bcall(_vputs)
+	add	a,'1'
+	bcall(_vputmap)
+	ld	hl,txtWins
+	bcall(_vputs)
+	call	press2nd
+endOfGame:
+	bcall(_copygbuf)
+	call	waitFor2nd
+	jp	mainMenu
+
+
+;******** Subroutines ********
+
+initGame:					; start a game
+	bcall(_cleargbuf)
+	call	dispNextPlayer
+	bcall(_copygbuf)
+	jp	delay
+;	ret
+
+
+clearMenu:
+	ld	hl,plotsscreen+(12*28)	; clear the menu
+	ld	de,plotsscreen+(12*28)+1
+	ld	bc,(12*21)-1
+	ldir
+	ret
+
+
+getNumPlayers:
+	call	clearMenu
+	ld	hl,$2306
+	ld	(pencol),hl
+	ld	hl,txtNumPlayers
+	bcall(_vputs)
+	ld	a,(VARS+PLAYERS)
+	ld	b,a
+	ld	c,1
+	ld	d,1
+	ld	e,9
+	call	inputNumber
+	ld	a,b
+	ld	(VARS+PLAYERS),a
+	ret
+
+getNumRounds:
+	call	clearMenu
+	ld	hl,$2306
+	ld	(pencol),hl
+	ld	hl,txtNumRounds
+	bcall(_vputs)
+	ld	a,(VARS+ROUNDS)
+	ld	b,a
+	ld	c,5
+	ld	d,5
+	ld	e,25
+	call	inputNumber
+	ld	a,b
+	ld	(VARS+ROUNDS),a
+	ret
+
+inputNumber:
+	push	de
+	push	bc
+	ld	hl,$2346
+	ld	(pencol),hl
+	ld	hl,txtLeft
+	bcall(_vputs)
+	ld	a,b
+	call	dispNumberHere
+	ld	a,32
+	bcall(_vputmap)
+	ld	a,86
+	ld	(pencol),a
+	ld	a,5
+	bcall(_vputmap)
+	bcall(_copygbuf)
+	call	delay
+	pop	bc
+	pop	de
+inputLoop:
+	call	resetKeyport
+	ld	a,$fe
+	out	(1),a
+	in	a,(1)
+	cp	253			; left
+	jr	z,left
+	cp	251			; right
+	jr	z,right
+	call	resetKeyport
+	ld	a,$bf
+	out	(1),a
+	in	a,(1)
+	cp	223			; 2nd
+	ret	z
+	call	resetKeyport
+	ld	a,$fd
+	out	(1),a
+	in	a,(1)
+	cp	191			; CLEAR
+	jr	z,quitInput
+	jr	inputLoop
+left:
+	ld	a,b
+	cp	d
+	jr	z,inputLoop
+	sub	c
+	ld	b,a
+	jr	inputNumber
+right:
+	ld	a,b
+	cp	e
+	jr	z,inputLoop
+	add	a,c
+	ld	b,a
+	jr	inputNumber
+quitInput:
+	pop	hl
+	pop	hl
+	jp	mainMenu
+
+
+inverseText:
+	set	textinverse,(iy+textflags)
+	ret
+
+
+dispCash:				; display cash
+	ld	hl,$3300
+	ld	(pencol),hl
+	ld	a,'$'
+	bcall(_vputmap)
+	call	getPlayer
+	ld	hl,VARS+PLAYER_DATA
+	add	hl,bc
+	ld	a,(hl)
+dispCashNow:
+	ld	hl,$3306
+	cp	100
+	jr	c,smallCash
+	ld	hl,$3300
+smallCash:
+	jp	dispNumber
+;	ret
+
+
+nextPlayer:				; change to next existing player
+	call	getPlayer
+playerSkip:
+	inc	c
+	ld	a,(VARS+PLAYERS)	; check if last player
+	cp	c
+	ret	z			; return Z = 1 if end of round
+	ld	hl,VARS+PLAYER_DATA
+	add	hl,bc
+	ld	a,(hl)
+	cp	251
+	jr	nc,playerSkip
+	ld	a,c
+	ld	(VARS+PLAYER),a
+	ret
+
+
+dispNextPlayer:			; display next player message
+	ld	hl,$0906
+	ld	(pencol),hl
+	ld	hl,txtPlayer
+	bcall(_vputs)
+	call	getPlayer
+	add	a,'1'
+	bcall(_vputmap)
+	ld	hl,txtNextPlayer
+	bcall(_vputs)
+	jp	press2nd
+;	ret
+
+
+getPlayer:				; let BC = current player
+	ld	a,(VARS+PLAYER)
+	ld	b,0
+	ld	c,a
+	ret
+
+
+askQuestion:
+#ifdef TI83P
+	call	pickRandomVolume	; open a random volume
+#endif
+	ld	a,(VARS+VOLUME)
+	ld	c,a
+	add	a,a		; multiply by 6
+	add	a,c
+	add	a,a
+	ld	d,0
+	ld	e,a
+	ld	hl,qLeft
+	add	hl,de		; to get address of # of q's left for this volume
+
+	ld	b,6		; randomise category
+	call	ionRandom
+	ld	e,a		; E = category
+	add	hl,de		; add category # to get address of # of q's left
+
+	ld	a,(hl)	; A = number of q's left
+	push	hl		; HL -> # of q's left
+	ld	b,a
+	call	ionRandom	; A = chosen question # (of remaining)
+	push	af
+
+	ld	a,c		; C = volume #
+	add	a,a		; multiply by 48
+	add	a,c
+	add	a,a
+	add	a,a
+	add	a,a
+	add	a,a
+	ld	b,e		; B = category
+	ld	e,a
+	ld	hl,qTable
+	add	hl,de		; to get address of qTable for this volume
+
+	ld	a,b		; B = category
+	add	a,a		; multiply by 8 to get address of qTable for this category
+	add	a,a
+	add	a,a
+	ld	e,a
+	add	hl,de
+
+	pop	af		; A = question # (of remaining)
+	inc	a
+	push	hl		; HL -> relevant qTable
+	push	bc		; B = category
+
+	ld	c,0		; C = 1 if found nth free bit
+	ld	d,-1		; D = number of current bit
+nextByte:
+	ld	b,8
+nextBit:
+	rl	(hl)
+	bit	0,c
+	jr	nz,doneBit
+	inc	d
+	jr	c,doneBit
+	dec	a
+	jr	nz,doneBit
+	ld	c,1
+	scf
+doneBit:
+	djnz	nextBit
+	rl	(hl)
+	inc	hl
+	bit	0,c
+	jr	z,nextByte
+				; D = absolute question #
+	pop	bc		; B = category
+	push	bc
+	ld	ix,icons	; draw the category icon
+	ld	a,b
+	add	a,a
+	add	a,a
+	add	a,a
+	ld	b,0
+	ld	c,a
+	add	ix,bc
+	ld	a,4
+	ld	l,21
+	ld	b,8
+	push	de
+	call	ionPutSprite
+	ld	a,(VARS+PLAYER)	; display player number
+	add	a,'1'
+	ld	hl,$3a19
+	ld	(pencol),hl
+	bcall(_vputmap)
+	bcall(_copygbuf)
+	pop	de
+	pop	bc		; B = category
+	ld	c,d		; C = question #
+	pop	de		; DE -> relevant qTable
+	pop	hl		; HL -> # of q's left
+
+	ld	a,(hl)	; decrease question count
+	dec	a
+	or	a
+	jr	nz,notExhausted
+	push	de		; if count = 0, reset qTable...
+	push	hl
+	push	de
+	pop	hl
+	ld	(hl),0
+	inc	de
+	push	bc
+	ld	bc,10
+	ldir
+	pop	bc
+	pop	hl
+	pop	de
+	ld	a,64
+notExhausted:
+	ld	(hl),a
+				; B = category
+	ld	a,c		; A = question #
+	ld	hl,(VARS+VOL_ADDR)	; get address of Huffman data
+	ld	ix,VARS+HUFF_TREE
+	ld	de,VARS+QUESTIONS
+	call	HuffExtr
+
+	ld	hl,0
+	ld	(pencol),hl
+	ld	hl,VARS+QUESTIONS
+nextLine:
+	ld	c,0			; C = total width so far
+	push	hl			; HL -> start of line
+nextChar:
+	ld	a,(hl)
+	cp	1
+	jr	z,endOfQuestion
+	push	hl
+	ld	h,0			; multiply char value by 8 (required for _sfont_len)
+	ld	l,a
+	add	hl,hl
+	add	hl,hl
+	add	hl,hl
+	bcall(_sfont_len)		; A, C, IX unaffected
+	pop	hl
+	ld	a,c
+	add	a,b
+	ld	c,a
+	inc	hl
+	cp	96
+	jr	c,nextChar		; character fits
+	dec	hl			; HL -> char that didn't fit
+	ld	a,' '			; search for last space
+	ld	bc,0
+	cpdr
+	inc	hl			; HL -> latest space
+	ld	(hl),0		; change to a '\0' char
+	pop	hl			; HL -> start of line
+	bcall(_vputs)		; HL -> start of next line
+	xor	a			; move pen to next line
+	ld	(pencol),a
+	ld	a,(penrow)
+	add	a,6
+	ld	(penrow),a
+	jr	nextLine
+endOfQuestion:
+	ld	(hl),0		; change '\1' char to a '\0' char
+	pop	hl
+	bcall(_vputs)		; HL -> correct answer
+
+	ld	de,VARS+TEMP
+	ld	b,4
+getAnswers:
+	push	bc
+	ld	a,l			; store address
+	ld	(de),a
+	inc	de
+	ld	a,h
+	ld	(de),a
+	inc	de
+
+	ld	c,0			; C = total width so far
+nextCharAns:
+	ld	a,(hl)
+	cp	2			; is char a '\0' or a '\1' ?
+	jr	c,endOfAnswer
+	push	hl
+	ld	h,0			; multiply char value by 8 (required for _sfont_len)
+	ld	l,a
+	add	hl,hl
+	add	hl,hl
+	add	hl,hl
+	push	de
+	bcall(_sfont_len)		; A, C, IX unaffected
+	pop	de
+	pop	hl
+	ld	a,c
+	add	a,b
+	ld	c,a
+	inc	hl
+	jr	nextCharAns
+endOfAnswer:
+	ld	(hl),0		; change to a '\0' char
+	inc	hl
+	ld	a,c
+	dec	a
+	ld	(de),a
+	inc	de
+	pop	bc
+	djnz	getAnswers
+
+	ld	c,253
+	call	getRandomAns
+	ld	de,$220c
+	ld	(pencol),de
+	bcall(_vputs)
+
+	ld	c,247
+	call	getRandomAns
+	ld	a,$5f
+	sub	b
+	srl	a
+	ld	d,$1a
+	ld	e,a
+	ld	(pencol),de
+	bcall(_vputs)
+
+	ld	c,254
+	call	getRandomAns
+	ld	a,$61
+	sub	b
+	srl	a
+	ld	d,$32
+	ld	e,a
+	ld	(pencol),de
+	bcall(_vputs)
+
+	ld	c,251
+	call	getRandomAns
+	ld	a,$54
+	sub	b
+	ld	d,$2a
+	ld	e,a
+	ld	(pencol),de
+	bcall(_vputs)
+
+	ld	a,78			; redraw possibly cleared pixels
+	ld	e,50
+	call	drawPixel
+	ld	a,77
+	ld	e,26
+	call	drawPixel
+
+	bcall(_copygbuf)
+
+	ld	hl,$1c00
+answerLoop:
+	call	resetKeyport
+	ld	a,$fe
+	out	(1),a
+	in	a,(1)
+	cp	254			; down
+	jr	z,checkAnswer
+	cp	253			; left
+	jr	z,checkAnswer
+	cp	251			; right
+	jr	z,checkAnswer
+	cp	247			; up
+	jr	z,checkAnswer
+	ld	bc,$0160
+delayLoop:
+	dec	bc
+	ld	a,b
+	or	c
+	jr	nz,delayLoop
+	dec	hl			; decrease counter
+	ld	a,l
+	or	a
+	jr	nz,answerLoop
+	ld	a,67			; change time gauge
+	add	a,h
+	ld	e,60
+	push	hl
+	call	ionGetPixel
+	xor	(hl)
+	ld	(hl),a
+	ld	de,12
+	add	hl,de
+	ld	(hl),a
+	add	hl,de
+	ld	(hl),a
+	bcall(_copygbuf)
+	pop	hl
+	ld	a,h
+	or	a
+	jr	nz,answerLoop
+
+	ld	hl,txtOutOfTime
+	ld	e,16
+	jr	dispMessage
+checkAnswer:
+	ld	e,30
+	ld	hl,txtIncorrect
+	ld	c,a
+	ld	a,(VARS+ANSWER)
+	cp	c
+	jr	nz,dispMessage
+	ld	e,34
+	ld	hl,txtCorrect
+dispMessage:
+	push	de
+	push	hl
+	ld	hl,plotsscreen
+	ld	de,plotsscreen+1
+	ld	bc,18*12-1
+	ldir
+	pop	hl
+	pop	de
+	ld	d,0
+	ld	(pencol),de
+	bcall(_vputs)		; affects only HL
+	ld	a,e
+	cp	34			; Z = 1 if correct
+	ret
+
+
+getRandomAns:			; returns HL -> unused answer
+	ld	b,4
+	call	ionRandom
+	ld	d,a
+	ld	b,0
+	or	a
+	jr	nz,notCorrect
+	ld	b,1
+notCorrect:
+	ld	a,d
+	add	a,a
+	add	a,d
+	ld	hl,VARS+TEMP+2
+	ld	d,0
+	ld	e,a
+	add	hl,de
+	ld	a,(hl)
+	or	a
+	jr	z,getRandomAns
+	bit	0,b
+	jr	z,notCorrect2
+	ld	a,c
+	ld	(VARS+ANSWER),a	; record correct answer
+notCorrect2:
+	ld	b,(hl)
+	ld	(hl),0		; mark answer as done
+	dec	hl
+	ld	d,(hl)
+	dec	hl
+	ld	e,(hl)
+	ex	de,hl
+	ret
+
+
+initScreen:
+	ld	hl,template
+	ld	de,plotsscreen
+	jp	DispRLE
+;	ret
+
+
+dispNumber:
+	ld	(pencol),hl		; display number at HL
+dispNumberHere:
+	ld	h,0
+	ld	l,a
+	bcall(_setxxxxop2)
+	bcall(_op2toop1)
+	ld	a,3
+	bcall(_dispop1a)
+	ret
+
+
+drawPixel:				; draw pixel at (A, E)
+	call	ionGetPixel
+	or	(hl)
+	ld	(hl),a
+	ret
+
+
+press2nd:
+	ld	hl,txtPress2nd
+	bcall(_vputs)
+	ret
+
+
+waitFor2nd:
+	call	resetKeyport
+	ld	a,$bf
+	out	(1),a
+	in	a,(1)
+	cp	223			; 2nd
+	ret	z
+	call	resetKeyport
+	ld	a,$fd
+	out	(1),a
+	in	a,(1)
+	cp	191			; CLEAR
+	jr	nz,waitFor2nd
+	pop	hl
+	jp	mainMenu
+
+
+delay:
+	ld	bc,$8000
+delayLoop2:
+	dec	bc
+	ld	a,b
+	or	c
+	jr	nz,delayLoop2
+	ret
+
+
+resetKeyport:
+	ld	a,$ff			; reset keyport
+	out	(1),a
+	ret
+
+
+#ifdef TI83P
+
+pickRandomVolume:			; returns Z = 0 if out of memory
+	ld	b,4				; randomise volume #
+	call	ionRandom
+	ld	hl,VARS+VOLUME1
+	ld	b,0
+	ld	c,a
+	add	hl,bc
+	ld	a,(hl)
+	or	a
+	jr	z,pickRandomVolume	; doesn't exist, try again
+	ld	a,c
+	ld	(VARS+VOLUME),a		; record chosen volume
+
+	ld	hl,(vat)
+	ld	ix,detectString
+	add	a,'1'
+	ld	(ix+3),a
+	call	ionDetect			; bring file into RAM
+	ld	(VARS+VOL_ADDR),hl	; record address of volume data
+	ret
+
+#endif
+
+
+#include "rle.asm"
+#include "huffextr.h"
+
+
+;******** Strings ********
+
+#ifdef TI83P
+
+volName:
+	.db	"FWTQVOL"
+
+detectString:
+	.db	"FWT",0,0
+
+txtNoVols:
+	.db	"No questions found in Flash",0
+
+txtOutOfMem:
+	.db	"16KB of RAM must be free",0
+
+#else
+
+detectString:
+	.db	"FWT",0
+
+txtNoVols:
+	.db	"No question volume found",0
+
+#endif
+
+
+txtURL:
+	.db	"http://badja.calc.org",0
+
+txtPlayMode:
+	.db	"Play mode:",0
+
+txtCashRun:
+	.db	"Cash Run",0
+
+txtPyramid:
+	.db	"Pyramid",0
+
+txtVolsPresent:
+	.db	"Volumes found:",0
+
+txtHash:
+	.db	" #",0
+
+txtNumPlayers:
+	.db	"Number of players: ",0
+
+txtNumRounds:
+	.db	"Number of rounds: ",0
+
+txtLeft:
+	.db	207,"  ",0
+
+txtRound:
+	.db	"RND",0
+
+txtCorrect:
+	.db	"CORRECT",0
+
+txtIncorrect:
+	.db	"INCORRECT",0
+
+txtOutOfTime:
+	.db	"YOU RAN OUT OF TIME",0
+
+txtEndCashRun:
+	.db	"END OF CASH RUN",0
+
+txtLose:
+	.db	"YOU LOSE",0
+
+txtPlayer:
+	.db	"PLAYER ",0
+
+txtNextPlayer:
+	.db	" NEXT",0
+
+txtWins:
+	.db	" WINS!",0
+
+txtTryAgain:
+	.db	"TRY AGAIN",0
+
+txtPress2nd:
+	.db	" - PRESS 2nd",0
+
+
+;******** Question tables ********
+
+qLeft:
+	.fill	4*6,64	; 4 volumes, 6 categorys in each, 64 questions in each
+
+qTable:
+	.fill	4*6*8,0	; 64 questions -> 64 bits -> 8 bytes
+
+
+;******** Pictures ********
+
+template:
+ .db $91,$00,$E4,$1F,$F8,$91,$00,$03,$03,$80,$91,$00
+ .db $05,$20,$04,$91,$00,$03,$1C,$70,$91,$00,$05,$20
+ .db $04,$91,$00,$03,$61,$0C,$91,$00,$05,$20,$04,$91
+ .db $00,$03,$43,$84,$91,$00,$05,$20,$04,$91,$00,$03
+ .db $87,$C2,$91,$00,$05,$20,$04,$91,$00,$03,$8F,$E2
+ .db $91,$00,$05,$20,$04,$3F,$FF,$FF,$83,$83,$FF,$FF
+ .db $F8,$00,$00,$20,$04,$40,$91,$00,$06,$04,$00,$00
+ .db $20,$04,$80,$91,$00,$06,$02,$00,$00,$20,$04,$80
+ .db $91,$00,$06,$02,$00,$00,$20,$04,$80,$91,$00,$06
+ .db $02,$00,$00,$1F,$F8,$80,$91,$00,$06,$02,$91,$00
+ .db $04,$80,$91,$00,$06,$02,$91,$00,$04,$40,$91,$00
+ .db $06,$04,$00,$00,$01,$91,$FF,$08,$F8,$03,$80,$0E
+ .db $91,$00,$08,$04,$1C,$70,$30,$91,$00,$08,$02,$60
+ .db $0C,$20,$91,$00,$08,$02,$40,$04,$40,$91,$00,$08
+ .db $02,$80,$02,$40,$80,$91,$00,$07,$02,$81,$02,$41
+ .db $80,$91,$00,$07,$02,$81,$82,$83,$C0,$91,$00,$07
+ .db $05,$03,$C1,$87,$C0,$91,$FF,$08,$03,$E1,$83,$C0
+ .db $A0,$91,$00,$07,$03,$C1,$41,$81,$40,$91,$00,$07
+ .db $01,$82,$40,$81,$40,$91,$00,$07,$01,$02,$40,$01
+ .db $40,$91,$00,$08,$02,$20,$02,$40,$91,$00,$08,$04
+ .db $30,$06,$40,$91,$00,$08,$0C,$0E,$38,$20,$91,$00
+ .db $08,$70,$01,$C0,$1F,$91,$FF,$08,$80,$00,$00,$20
+ .db $91,$00,$06,$02,$91,$00,$04,$40,$91,$00,$06,$01
+ .db $91,$00,$04,$40,$91,$00,$06,$01,$91,$00,$04,$40
+ .db $91,$00,$06,$01,$77,$57,$00,$00,$40,$91,$00,$06
+ .db $01,$22,$74,$00,$00,$40,$91,$00,$06,$01,$22,$56
+ .db $00,$00,$20,$91,$00,$06,$02,$22,$54,$00,$00,$1F
+ .db $FF,$FF,$C1,$C1,$FF,$FF,$FC,$27,$57,$91,$00,$05
+ .db $47,$F1,$91,$00,$05,$C8,$4A,$EC,$00,$00,$43,$E1
+ .db $00,$1F,$FF,$FF,$FE,$A8,$AA,$8A,$00,$00,$21,$C2
+ .db $00,$3F,$91,$FF,$03,$C8,$E4,$CC,$00,$00,$30,$86
+ .db $00,$3F,$91,$FF,$03,$88,$A4,$8A,$00,$00,$0E,$38
+ .db $00,$3F,$91,$FF,$03,$8E,$A4,$EA,$00,$00,$01,$C0
+ .db $00,$1F,$FF,$FF,$FE
+
+
+icons:
+ .db %00111110
+ .db %01000011
+ .db %01011010
+ .db %01000010
+ .db %01011010
+ .db %01000010
+ .db %10000010
+ .db %01111100
+ .db %00110000
+ .db %11111101
+ .db %11111111
+ .db %11111111
+ .db %11111101
+ .db %00010000
+ .db %00101000
+ .db %01000100
+ .db %00010000
+ .db %00101000
+ .db %01100100
+ .db %01111100
+ .db %11111110
+ .db %11111110
+ .db %11111111
+ .db %11111111
+ .db %00001000
+ .db %00001100
+ .db %00001010
+ .db %00001010
+ .db %00001000
+ .db %00111000
+ .db %01111000
+ .db %00110000
+ .db %00000010
+ .db %00001100
+ .db %00011000
+ .db %01111110
+ .db %11111100
+ .db %00110000
+ .db %01100000
+ .db %10000000
+ .db %00111100
+ .db %01100110
+ .db %11011011
+ .db %11100111
+ .db %11011011
+ .db %11100111
+ .db %01111110
+ .db %00111100
+
+.end
